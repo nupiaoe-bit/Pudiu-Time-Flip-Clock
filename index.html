@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+   
+  <title>Pudiu 翻页在线时钟 - 永久免费的全屏专注桌面时钟</title>
+ 
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@700&family=Oswald:wght@500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+ 
+  <style>
+    /* ================= 核心重置与变量 ================= */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+ 
+    :root {
+      --text-main: #f5f5f7;
+      --text-secondary: #86868b;
+      --dock-bg: rgba(20, 20, 22, 0.65);
+       
+      --clock-font: 'Inter', "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --clock-color: #f5f5f7;
+      --card-bg-color: #1a1a1c;
+      --clock-scale: 1;
+    }
+ 
+    html, body {
+      width: 100%; height: 100%;
+      background-color: #000;
+      color: var(--text-main);
+      font-family: var(--clock-font);
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden; 
+    }
+ 
+    /* ================= 全局物理翻转层 ================= */
+    .app-root {
+      width: 100vw; height: 100vh;
+      transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      transform-origin: center center;
+      position: relative;
+    }
+    .app-root.mirror-x { transform: scaleX(-1); }
+    .app-root.mirror-y { transform: scaleY(-1); }
+    .app-root.mirror-xy { transform: scale(-1, -1); }
+ 
+    /* ================= 底层背景渲染 ================= */
+    #bg-layer {
+      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+      z-index: 0; background-color: #000; pointer-events: none;
+    }
+    #bg-layer img, #bg-layer video { 
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%; object-fit: cover; 
+      animation: fadeIn 0.8s ease forwards; 
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+ 
+    #bg-overlay {
+      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.35); z-index: 1; pointer-events: none;
+      transition: background 0.8s ease;
+    }
+ 
+    /* ================= 头部导航栏 ================= */
+    .app-header {
+      position: absolute; top: 0; left: 0; width: 100%; padding: 25px 40px;
+      display: flex; justify-content: space-between; align-items: center;
+      z-index: 50; transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    .header-logo { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+    .header-logo svg { width: 28px; height: 28px; fill: #fff; }
+    .header-logo span { font-size: 1.2rem; font-weight: 700; letter-spacing: 2px; color: #fff; text-transform: uppercase; }
+    .header-lang {
+      background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255,255,255,0.2);
+      padding: 6px 14px; border-radius: 50px; color: #fff; font-size: 0.85rem; font-weight: 500; 
+      cursor: pointer; backdrop-filter: blur(10px); transition: all 0.2s;
+    }
+    .header-lang:hover { background: rgba(255, 255, 255, 0.2); }
+ 
+    /* ================= 悬浮快捷控制台 ================= */
+    .quick-controls {
+      position: absolute; left: 40px; bottom: 40px; 
+      display: flex; gap: 15px; z-index: 100;
+      transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .control-btn {
+      background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; font-size: 1.2rem; cursor: pointer; opacity: 0.7; 
+      transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+      width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+      border-radius: 50%; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    }
+    .control-btn:hover, .control-btn.active { opacity: 1; background: rgba(0, 0, 0, 0.8); transform: scale(1.1); border-color: #0a84ff; }
+ 
+    /* ================= 全局主页面滚动 ================= */
+    .scroll-container {
+      position: relative; z-index: 5; width: 100vw; height: 100vh;
+      overflow-y: auto; overflow-x: hidden;
+      scroll-snap-type: y mandatory; scroll-behavior: smooth;
+    }
+    .scroll-container::-webkit-scrollbar { display: none; } 
+ 
+    .screen-section {
+      width: 100vw; min-height: 100vh; scroll-snap-align: start;
+      position: relative; display: flex; flex-direction: column; 
+      align-items: center; justify-content: center; padding: 20px;
+    }
+ 
+    /* ================= 第一屏：核心翻页时钟 ================= */
+    .widget-container { 
+      display: flex; flex-direction: column; align-items: center; justify-content: center; 
+      gap: 4vh; width: 100%; transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1); 
+    }
+ 
+    .clock-display { display: flex; align-items: center; justify-content: center; gap: clamp(10px, 3vw, 30px); transform: scale(var(--clock-scale)); transition: transform 0.3s ease; }
+    .time-group { display: flex; gap: clamp(3px, 1vw, 6px); }
+    .colon { font-size: clamp(4rem, 10vw, 8rem); color: rgba(255, 255, 255, 0.4); animation: pulse 2s infinite; padding-bottom: 2vh; font-family: 'Inter', sans-serif; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+ 
+    .flip-unit {
+      position: relative; width: clamp(45px, 10vw, 150px); height: clamp(70px, 16vw, 220px);
+      font-size: clamp(3.5rem, 13vw, 18rem); font-weight: 700; color: var(--clock-color);
+      border-radius: clamp(8px, 1.5vw, 16px); box-shadow: 0 20px 40px rgba(0,0,0,0.6); perspective: 1500px; background-color: var(--card-bg-color);
+    }
+    .flip-unit::after { content: ""; position: absolute; top: 50%; left: 0; width: 100%; height: 2px; background: rgba(0,0,0,0.8); z-index: 10; margin-top: -1px; box-shadow: 0 1px 1px rgba(255,255,255,0.1); }
+    .card { position: absolute; left: 0; width: 100%; height: 50%; overflow: hidden; backface-visibility: hidden; transform-style: preserve-3d; background-color: var(--card-bg-color); }
+    .card span { position: absolute; left: 0; width: 100%; height: 200%; display: flex; align-items: center; justify-content: center; line-height: 1; font-variant-numeric: tabular-nums; }
+     
+    .top-bg, .top-flip { top: 0; transform-origin: bottom; border-top-left-radius: inherit; border-top-right-radius: inherit; }
+    .top-bg span, .top-flip span { top: 0; }
+    .bottom-bg, .bottom-flip { bottom: 0; transform-origin: top; border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
+    .bottom-bg span, .bottom-flip span { bottom: 0; }
+    .top-bg { z-index: 1; } .bottom-bg { z-index: 1; } .top-flip { z-index: 3; } .bottom-flip { z-index: 2; transform: rotateX(90deg); }
+     
+    .is-flipping .top-flip { animation: flipTop 0.4s cubic-bezier(0.3, 0, 0.8, 0.15) forwards; }
+    .is-flipping .bottom-flip { animation: flipBottom 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.15) 0.4s forwards; }
+    @keyframes flipTop { 0% { transform: rotateX(0deg); filter: brightness(1); } 100% { transform: rotateX(-90deg); filter: brightness(0.2); } }
+    @keyframes flipBottom { 0% { transform: rotateX(90deg); filter: brightness(0.2); } 100% { transform: rotateX(0deg); filter: brightness(1); } }
+ 
+    /* ================= 透明底座与文字信息 ================= */
+    .info-footer {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      background: transparent; 
+      padding: 16px 40px; border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.15); 
+      transition: transform 0.3s ease;
+    }
+    .city-name { font-size: clamp(1.4rem, 2.5vw, 1.8rem); font-weight: 700; letter-spacing: 4px; text-transform: uppercase; display: flex; align-items: center; justify-content: center; gap: 10px; color: #fff; text-shadow: 0 4px 15px rgba(0,0,0,0.8); }
+    .ampm-badge { font-size: clamp(0.75rem, 1.2vw, 0.9rem); font-weight: 600; background: rgba(255,255,255,0.15); padding: 4px 10px; border-radius: 8px; letter-spacing: 1px; color: #fff; display: none; border: 1px solid rgba(255,255,255,0.1); }
+    .date-display { font-size: clamp(0.95rem, 1.5vw, 1.1rem); color: rgba(255, 255, 255, 0.9); font-weight: 600; letter-spacing: 2px; text-shadow: 0 2px 10px rgba(0,0,0,0.8); margin-top: 5px; }
+ 
+    /* ================= 时区 Dock 与全域选择中心 ================= */
+    .dock-wrapper { 
+      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); 
+      display: flex; z-index: 10; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1); 
+      width: 100%; max-width: 800px; justify-content: center; 
+    }
+    .dock-container { 
+      display: flex; gap: 10px; background: var(--dock-bg); padding: 10px 14px; 
+      border-radius: 100px; backdrop-filter: blur(25px); border: 1px solid rgba(255,255,255,0.08); 
+      max-width: 95vw; overflow-x: auto; 
+    }
+    .dock-container::-webkit-scrollbar { display: none; }
+    .dock-btn { 
+      background: transparent; border: none; color: #aaa; font-size: 0.95rem; font-weight: 600; 
+      padding: 10px 20px; border-radius: 100px; cursor: pointer; display: flex; align-items: center; gap: 8px; 
+      white-space: nowrap; transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); 
+    }
+    .dock-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+    .dock-btn.active { background: rgba(255,255,255,0.95); color: #000; box-shadow: 0 4px 15px rgba(255,255,255,0.2); }
+    .dock-btn.add-btn { border: 1px dashed rgba(255,255,255,0.3); color: #fff; }
+    .dock-btn.add-btn:hover { border-style: solid; background: rgba(255,255,255,0.15); }
+ 
+    .tz-modal {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+      display: flex; align-items: center; justify-content: center; z-index: 3000;
+      opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    }
+    .tz-modal.show { opacity: 1; pointer-events: auto; }
+    .tz-content {
+      background: rgba(18, 18, 20, 0.9); border: 1px solid rgba(255,255,255,0.1);
+      width: 90%; max-width: 700px; max-height: 80vh; border-radius: 24px;
+      display: flex; flex-direction: column; box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+      transform: scale(0.95) translateY(10px); transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .tz-modal.show .tz-content { transform: scale(1) translateY(0); }
+    .tz-header {
+      padding: 25px 30px; border-bottom: 1px solid rgba(255,255,255,0.05);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .tz-header h3 { color: #fff; font-size: 1.2rem; font-weight: 700; letter-spacing: 1px;}
+    .close-tz { background: transparent; border: none; color: #888; font-size: 1.8rem; cursor: pointer; transition: color 0.2s;}
+    .close-tz:hover { color: #fff; }
+    .tz-body { padding: 25px 30px; overflow-y: auto; flex: 1; }
+    .tz-body::-webkit-scrollbar { display: none; }
+    .tz-group-title { color: #888; font-size: 0.9rem; margin: 20px 0 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;}
+    .tz-group-title:first-child { margin-top: 0; }
+    .tz-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+    .tz-item {
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 12px; padding: 12px 15px; color: #ddd; font-size: 0.95rem; font-weight: 500;
+      cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;
+    }
+    .tz-item:hover { background: rgba(255,255,255,0.15); color: #fff; transform: translateY(-2px); border-color: rgba(255,255,255,0.2);}
+ 
+    .scroll-down-hint {
+      position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; opacity: 0.85;
+      animation: bounce 2s infinite; cursor: pointer; z-index: 150; transition: all 0.5s ease;
+      color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+    .scroll-down-hint span { font-size: 0.85rem; letter-spacing: 2px; margin-bottom: 5px; text-transform: uppercase;}
+    .scroll-down-hint svg { width: 24px; height: 24px; fill: #fff; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5));}
+    @keyframes bounce { 0%, 20%, 50%, 80%, 100% { transform: translateY(0) translateX(-50%); } 40% { transform: translateY(-10px) translateX(-50%); } 60% { transform: translateY(-5px) translateX(-50%); } }
+ 
+    /* ================= 侧边抽屉设置 ================= */
+    .sidebar-wrapper {
+      position: absolute; top: 0; right: 0; width: 380px; height: 100vh;
+      transform: translateX(100%); transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+      z-index: 2000; will-change: transform; display: flex; align-items: center;
+    }
+    .sidebar-wrapper.open { transform: translateX(0); }
+ 
+    #settings-btn { position: absolute; left: -75px; bottom: 40px; width: 54px; height: 54px; font-size: 1.5rem; box-shadow: -5px 5px 20px rgba(0,0,0,0.5); }
+ 
+    .sidebar-panel {
+      width: 100%; height: 100%; padding: 40px 25px; overflow-y: auto; overflow-x: hidden;
+      background: rgba(18, 18, 20, 0.85); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
+      border-left: 1px solid rgba(255,255,255,0.1); box-shadow: -10px 0 40px rgba(0,0,0,0.6);
+    }
+    .sidebar-panel::-webkit-scrollbar { display: none; }
+     
+    .sidebar-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .sidebar-header-row .section-title { margin: 0; border: none; padding: 0; }
+    .sidebar-close-btn { background: transparent; border: none; color: #888; font-size: 2rem; cursor: pointer; transition: color 0.2s; line-height: 1; display: none; }
+    .sidebar-close-btn:hover { color: #fff; }
+ 
+    .section-title { font-size: 1.05rem; font-weight: 700; color: #fff; margin: 25px 0 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; letter-spacing: 1px;}
+    .section-title:first-child { margin-top: 0; }
+ 
+    .form-group { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.02);}
+    .form-group label { font-size: 0.95rem; color: #ddd; font-weight: 500; }
+     
+    .custom-select { background: #2a2a2d; color: #fff; border: 1px solid rgba(255,255,255,0.15); padding: 6px 10px; border-radius: 8px; font-size: 0.9rem; outline: none; font-family: inherit; cursor: pointer; width: 135px;}
+    .color-picker { -webkit-appearance: none; width: 28px; height: 28px; border: none; border-radius: 50%; cursor: pointer; background: transparent; padding: 0; }
+    .color-picker::-webkit-color-swatch-wrapper { padding: 0; }
+    .color-picker::-webkit-color-swatch { border: 2px solid rgba(255,255,255,0.2); border-radius: 50%; }
+ 
+    .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #444; transition: .4s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+    input:checked + .slider { background-color: #0a84ff; }
+    input:checked + .slider:before { transform: translateX(20px); }
+ 
+    input[type=range] { -webkit-appearance: none; width: 110px; background: transparent; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #fff; cursor: pointer; margin-top: -6px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+    input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #555; border-radius: 2px; }
+ 
+    .custom-file-btn { background: #2a2a2d; color: #fff; border: 1px solid rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s; font-weight: 500; display: inline-block; }
+    .custom-file-btn:hover { background: rgba(255,255,255,0.1); border-color: #0a84ff; }
+     
+    .btn-reset { margin-top: 25px; width: 100%; padding: 14px; background: rgba(255, 59, 48, 0.1); border: 1px solid rgba(255, 59, 48, 0.4); color: #ff3b30; border-radius: 10px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 0.95rem; letter-spacing: 1px;}
+    .btn-reset:hover { background: rgba(255, 59, 48, 0.25); color: #fff; }
+ 
+    /* ================= 第二/三屏专属样式 ================= */
+    .media-panel, .about-panel {
+      width: 95%; max-width: 1400px; padding: clamp(30px, 5vw, 60px);
+      background: rgba(15, 15, 18, 0.75); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 28px; box-shadow: 0 40px 80px rgba(0,0,0,0.6);
+    }
+    .gallery-title { font-size: clamp(1.4rem, 2.5vw, 1.8rem); font-weight: 700; color: #fff; margin-bottom: 30px; text-align: center; letter-spacing: 2px;}
+     
+    .media-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+    .bg-card { background: #2a2a2d; border-radius: 16px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: all 0.2s; position: relative; }
+    .bg-card:hover { transform: translateY(-5px); box-shadow: 0 15px 30px rgba(0,0,0,0.5); }
+    .bg-card.active { border-color: #0a84ff; box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.4); }
+    .bg-cover { width: 100%; height: 140px; object-fit: cover; background: #111; display: block; }
+    .bg-info { padding: 12px; display: flex; flex-direction: column; gap: 4px; text-align: center; }
+    .bg-title { font-size: 1rem; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .bg-type-badge { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.7); color: #fff; font-size: 0.75rem; padding: 4px 10px; border-radius: 6px; backdrop-filter: blur(4px); }
+     
+    /* 修复上传卡片变形问题 */
+    .upload-card { 
+      border: 2px dashed rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); 
+      display: flex; flex-direction: column; align-items: center; justify-content: center; 
+      color: #aaa; min-height: 185px; transition: all 0.3s ease; 
+      cursor: pointer; text-align: center; padding: 20px;
+    }
+    .upload-card:hover { border-color: #0a84ff; color: #fff; background: rgba(10, 132, 255, 0.1); }
+    .upload-icon { font-size: 2.5rem; margin-bottom: 12px; color: inherit; }
+    .upload-text { font-size: 0.95rem; font-weight: 500; letter-spacing: 1px; color: inherit; }
+ 
+    /* 关于面板 */
+    .about-panel { display: flex; flex-direction: column; gap: 40px; }
+    .about-hero { text-align: center; max-width: 900px; margin: 0 auto; }
+    .about-hero h2 { font-size: clamp(2rem, 4vw, 2.8rem); color: #fff; margin-bottom: 20px; font-weight: 700; letter-spacing: 2px; }
+    .about-hero p { font-size: clamp(1rem, 1.5vw, 1.15rem); color: #ccc; line-height: 1.8; font-weight: 400; }
+    .about-hero .highlight { color: #fff; font-weight: 600; }
+ 
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+    .feature-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 20px; padding: 25px; transition: all 0.3s ease; }
+    .feature-card:hover { transform: translateY(-5px); background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    .feature-icon { font-size: 2.2rem; margin-bottom: 15px; display: inline-block;}
+    .feature-title { font-size: 1.1rem; color: #fff; font-weight: 600; margin-bottom: 8px; letter-spacing: 1px; }
+    .feature-desc { font-size: 0.9rem; color: #999; line-height: 1.6; }
+ 
+    .about-footer { text-align: center; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 20px; }
+    .about-footer p { color: #888; font-size: 0.95rem; letter-spacing: 1px; }
+ 
+    .friendly-links { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 15px; margin-top: 20px; padding-top: 20px; border-top: 1px dotted rgba(255,255,255,0.1); }
+    .links-title { color: #666; font-size: 0.9rem; font-weight: 600; letter-spacing: 1px; }
+    .friendly-links a { color: #aaa; font-size: 0.9rem; text-decoration: none; transition: color 0.2s; font-family: 'Inter', sans-serif;}
+    .friendly-links a:hover { color: #fff; text-decoration: underline; }
+ 
+    /* ================= 移动端适配 ================= */
+    [url=home.php?mod=space&uid=945662]@media[/url] (max-width: 768px) {
+      .app-header { padding: 15px 20px; }
+      .header-logo span { font-size: 1rem; letter-spacing: 1px; }
+      .header-lang { padding: 4px 10px; font-size: 0.75rem; }
+       
+      .quick-controls { left: 15px; bottom: 85px; gap: 10px; flex-wrap: wrap; max-width: 160px; }
+      .control-btn { width: 42px; height: 42px; font-size: 1.1rem; }
+       
+      .dock-wrapper { bottom: 15px; padding: 0 10px; }
+      .dock-container { width: 100%; justify-content: flex-start; padding: 6px 10px; }
+      .dock-btn { font-size: 0.85rem; padding: 8px 14px; }
+       
+      .sidebar-wrapper { width: 100vw; }
+      #settings-btn { left: -60px; bottom: 30px; width: 48px; height: 48px; }
+      .sidebar-close-btn { display: block; }
+       
+      .media-gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+      .bg-cover { height: 100px; }
+      .upload-card { min-height: 145px; }
+       
+      .scroll-hint { bottom: 95px; }
+      .feature-grid { grid-template-columns: 1fr; }
+    }
+ 
+    /* ================= 沉浸全屏模式与锁屏模式 (样式复用与隐藏) ================= */
+    body.fullscreen-mode .app-header, body.standby-mode .app-header { opacity: 0; transform: translateY(-30px); pointer-events: none; }
+    body.fullscreen-mode .quick-controls, body.standby-mode .quick-controls { opacity: 0; transform: translateY(30px); pointer-events: none; }
+    body.fullscreen-mode .dock-wrapper, body.standby-mode .dock-wrapper { opacity: 0; transform: translate(-50%, 30px); pointer-events: none; }
+    body.fullscreen-mode .scroll-hint, body.standby-mode .scroll-hint { opacity: 0; pointer-events: none; }
+    body.fullscreen-mode .sidebar-wrapper, body.standby-mode .sidebar-wrapper { opacity: 0; pointer-events: none; }
+ 
+    /* 修复后的独立底层锁屏面板 */
+    #standby-hint {
+      position: fixed; bottom: 10vh; left: 50%; transform: translateX(-50%) translateY(20px);
+      color: rgba(255, 255, 255, 0.9); font-size: 1.05rem; letter-spacing: 2px; 
+      opacity: 0; pointer-events: none; transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1); z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      font-weight: 500; font-family: "PingFang SC", sans-serif;
+      background: rgba(20, 20, 22, 0.6); padding: 18px 30px; border-radius: 16px;
+      backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+      border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    body.standby-mode #standby-hint { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; cursor: pointer; }
+    #standby-hint svg { width: 28px; height: 28px; fill: currentColor; animation: pulse-up 2s infinite cubic-bezier(0.4, 0, 0.2, 1); }
+    @keyframes pulse-up { 0%, 100% { transform: translateY(0); opacity: 0.6; } 50% { transform: translateY(-8px); opacity: 1; } }
+ 
+    body.standby-mode .scroll-container { overflow-y: hidden; } 
+    body.standby-mode #bg-overlay { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px); }
+    body.standby-mode .widget-container { transform: scale(0.9); }
+  </style>
+</head>
+<body>
+ 
+  <audio id="ambient-audio" loop preload="none">
+    <source src="https://cdn.pixabay.com/audio/2022/05/27/audio_1808fbf07a.mp3" type="audio/mpeg">
+  </audio>
+ 
+  <div id="app-root" class="app-root">
+ 
+    <div id="bg-layer"></div>
+    <div id="bg-overlay"></div>
+ 
+    <div id="standby-hint">
+      <svg viewBox="0 0 24 24"><path d="M12 2C9.24 2 7 4.24 7 7v3H6c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8c0-1.1-.9-2-2-2h-1V7c0-2.76-2.24-5-5-5zm3 8H9V7c0-1.66 1.34-3 3-3s3 1.34 3 3v3zm-3 6c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+      <span>点击屏幕或按任意键解锁</span>
+    </div>
+ 
+    <header class="app-header" id="app-header">
+      <div class="header-logo">
+        <svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+        <span>Pudiu 翻页在线时钟</span>
+      </div>
+      <div class="header-lang">&#127760; 简体中文 | EN</div>
+    </header>
+ 
+    <div class="quick-controls" id="quick-controls">
+      <button id="btn-fullscreen" class="control-btn" title="全屏沉浸模式 (双击屏幕退出)">&#9974;</button>
+      <button id="btn-standby" class="control-btn" title="一键进入锁屏 (专注模式)">&#128274;</button>
+      <button id="btn-next-bg" class="control-btn" title="一键随机必应壁纸">&#128444;&#65039;</button>
+      <button id="btn-flip-x" class="control-btn" title="界面水平翻转 (镜像)">&#8596;</button>
+      <button id="btn-flip-y" class="control-btn" title="界面垂直翻转 (倒影)">&#8597;</button>
+      <button id="btn-share" class="control-btn" title="分享本站给朋友">&#128279;</button>
+      <button id="btn-favorite" class="control-btn" title="收藏本站">&#11088;</button>
+    </div>
+ 
+    <div class="sidebar-wrapper" id="sidebar-wrapper">
+      <button id="settings-btn" class="control-btn" title="系统高级设置">&#9881;&#65039;</button>
+      <div class="sidebar-panel">
+         
+        <div class="sidebar-header-row">
+          <div class="section-title">系统高级设置</div>
+          <button id="close-sidebar-btn" class="sidebar-close-btn" title="关闭设置">×</button>
+        </div>
+ 
+        <div class="form-group"><label>时钟部件可见</label><label class="switch"><input type="checkbox" id="setting-show-clock" checked><span class="slider"></span></label></div>
+        <div class="form-group">
+          <label>时间制式</label>
+          <select class="custom-select" id="setting-hour-format">
+            <option value="24">24 小时制</option>
+            <option value="12">12 小时制</option>
+          </select>
+        </div>
+        <div class="form-group"><label>整体缩放大小</label><input type="range" id="setting-scale" min="0.5" max="1.5" step="0.1" value="1"></div>
+         
+        <div class="section-title">字体与UI色彩</div>
+        <div class="form-group">
+          <label>数字字体</label>
+          <select class="custom-select" id="setting-font">
+            <option value="'Inter', sans-serif">现代 (Inter)</option>
+            <option value="'Oswald', sans-serif">力量 (Oswald)</option>
+            <option value="'Bebas Neue', sans-serif">海报 (Bebas)</option>
+            <option value="'JetBrains Mono', monospace">极客 (JetBrains)</option>
+          </select>
+        </div>
+        <div class="form-group"><label>卡片底板颜色</label><input type="color" class="color-picker" id="setting-card-bg" value="#1a1a1c"></div>
+        <div class="form-group"><label>翻页数字颜色</label><input type="color" class="color-picker" id="setting-font-color" value="#f5f5f7"></div>
+ 
+        <div class="section-title">沉浸白噪音 (BGM)</div>
+        <div class="form-group"><label>开启背景音乐</label><label class="switch"><input type="checkbox" id="setting-audio-toggle"><span class="slider"></span></label></div>
+        <div class="form-group"><label>音量大小控制</label><input type="range" id="setting-volume" min="0" max="1" step="0.05" value="0.5"></div>
+        <div class="form-group" style="background: rgba(255,255,255,0.06);">
+          <label>本地音频替换</label>
+          <label for="custom-audio-upload" class="custom-file-btn">选择 MP3...</label>
+          <input type="file" id="custom-audio-upload" accept="audio/*">
+        </div>
+        <button class="btn-reset" id="reset-btn">清空缓存并重置系统</button>
+      </div>
+    </div>
+ 
+    <div class="scroll-container" id="scroll-app">
+       
+      <section class="screen-section" id="screen-clock">
+        <div class="widget-container" id="main-widget">
+          <div class="clock-display">
+            <div class="time-group">
+              <div class="flip-unit" id="hours-tens"><div class="card top-bg"><span>0</span></div><div class="card bottom-bg"><span>0</span></div><div class="card top-flip"><span>0</span></div><div class="card bottom-flip"><span>0</span></div></div>
+              <div class="flip-unit" id="hours-ones"><div class="card top-bg"><span>0</span></div><div class="card bottom-bg"><span>0</span></div><div class="card top-flip"><span>0</span></div><div class="card bottom-flip"><span>0</span></div></div>
+            </div>
+            <div class="colon">:</div>
+            <div class="time-group">
+              <div class="flip-unit" id="minutes-tens"><div class="card top-bg"><span>0</span></div><div class="card bottom-bg"><span>0</span></div><div class="card top-flip"><span>0</span></div><div class="card bottom-flip"><span>0</span></div></div>
+              <div class="flip-unit" id="minutes-ones"><div class="card top-bg"><span>0</span></div><div class="card bottom-bg"><span>0</span></div><div class="card top-flip"><span>0</span></div><div class="card bottom-flip"><span>0</span></div></div>
+            </div>
+            <div class="colon">:</div>
+            <div class="time-group">
+              <div class="flip-unit" id="seconds-tens"><div class="card top-bg"><span>0</span></div><div class="card bottom-bg"><span>0</span></div><div class="card top-flip"><span>0</span></div><div class="card bottom-flip"><span>0</span></div></div>
+              <div class="flip-unit" id="seconds-ones"><div class="card top-bg"><span>0</span></div><div class="card bottom-bg"><span>0</span></div><div class="card top-flip"><span>0</span></div><div class="card bottom-flip"><span>0</span></div></div>
+            </div>
+          </div>
+           
+          <div class="info-footer">
+            <div class="city-name"><span id="display-city">定位中...</span><span class="ampm-badge" id="display-ampm">AM</span></div>
+            <div class="date-display" id="display-date">Loading...</div>
+          </div>
+        </div>
+ 
+        <div class="dock-wrapper" id="dock-wrapper">
+          <div class="dock-container" id="dock-container">
+            </div>
+        </div>
+ 
+        <div class="scroll-hint">
+          <span>更换壁纸</span>
+          <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+        </div>
+      </section>
+ 
+      <section class="screen-section" id="screen-media">
+        <div class="media-panel">
+          <div class="gallery-title">视觉背景媒体库</div>
+          <div class="media-gallery" id="master-bg-grid">
+            <div class="bg-card upload-card">
+              <span class="upload-icon">＋</span>
+              <span class="upload-text">自定义本地文件</span>
+              <input type="file" id="custom-upload" accept="image/*,video/*" style="display:none;">
+            </div>
+          </div>
+        </div>
+         
+        <div class="scroll-hint" style="bottom: 40px;">
+          <span>探索全部功能</span>
+          <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+        </div>
+      </section>
+ 
+      <section class="screen-section" id="screen-about">
+        <div class="about-panel">
+          <div class="about-hero">
+            <h2>永久免费的极致美学与精准在线时间</h2>
+            <p>在快节奏的数字时代，Pudiu 翻页在线时钟不仅是一款获取精准时间的无广告工具，更是能够为您的桌面注入生命力的美学艺术品。无论您是需要跨时区办公的数字游民，还是渴望在繁杂事物中进入 <span class="highlight">沉浸状态</span> 的专注者，它都是您的免费首选。</p>
+          </div>
+           
+          <div class="feature-grid">
+            <div class="feature-card"><span class="feature-icon">&#128241;</span><div class="feature-title">全端跨平台兼容</div><div class="feature-desc">无缝适配个人电脑、智能手机或平板设备，支持全端弹性自适应排版。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#10024;</span><div class="feature-title">极简全屏美学</div><div class="feature-desc">高级透明悬浮视窗结合平滑物理翻页动画，为设备屏幕增添极致艺术质感。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#128338;</span><div class="feature-title">精准直观在线时间</div><div class="feature-desc">经典的复古大字号翻页数字设计，让核心在线时间瞬间捕捉，一目了然。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#127912;</span><div class="feature-title">动态壁纸深度定制</div><div class="feature-desc">内置海量 4K 动态视频与必应随机壁纸，搭配多种顶级字体随心打造专属空间。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#128306;</span><div class="feature-title">专注沉浸式模式</div><div class="feature-desc">双击即可全屏，一键隐藏所有无关控制控件，让您进入心流状态保持极度专注。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#128444;&#65039;</span><div class="feature-title">高端桌面装饰摆件</div><div class="feature-desc">进入深度锁屏状态后，时钟化身为极具品味的桌面动态摆件与奢华电子画框。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#9889;</span><div class="feature-title">多功能效率中枢</div><div class="feature-desc">底座全域时区中心，一键掌控全球多地时间，满足远程办公、跨国沟通所需。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#127919;</span><div class="feature-title">毫秒级精准走时</div><div class="feature-desc">系统底层实时智能同步在线时间与全球物理地理数据，确保每一秒运转分毫不差。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#128267;</span><div class="feature-title">极致超低能耗</div><div class="feature-desc">纯前端原生 DOM 节点渲染引擎，拒绝框架冗余，最大程度节省移动设备的电量。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#127811;</span><div class="feature-title">绿色环保理念</div><div class="feature-desc">纯粹的数字化呈现，实现完全 0 碳排放，是对传统实体机械手表的完美环保替代。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#128640;</span><div class="feature-title">零门槛开箱即用</div><div class="feature-desc">无需下载软件，无需繁杂的安装操作步骤，打开网页即可立即获得丝滑无广体验。</div></div>
+            <div class="feature-card"><span class="feature-icon">&#128142;</span><div class="feature-title">100% 永久免费</div><div class="feature-desc">Pudiu Flip Clock 的所有核心功能与高阶底层架构对全网用户永久免费无条件开放。</div></div>
+          </div>
+ 
+          <div class="about-footer">
+            <p>将网页添加至书签，随时随刻开启您的专注之旅。更多功能，敬请期待 Pudiu 团队更新！</p>
+             
+            <div class="friendly-links">
+              <span class="links-title">&#128279; 友情链接：</span>
+             <a href="https://www.pudiu.com/" target="_blank">Pudiu Team</a>
+                           <a href="https://ip.pudiu.com/" target="_blank" data-i18n="link2">IP Lookup Tool</a>
+                           <a href="https://hunter.pudiu.com/" target="_blank" data-i18n="link3">Pudiu Resource Hunter</a>
+                           <a href="https://url.pudiu.com/" target="_blank" data-i18n="link4">Pudiu-Extractor</a>
+            </div>
+          </div>
+        </div>
+      </section>
+ 
+    </div>
+  </div>
+ 
+  <div id="tz-modal" class="tz-modal">
+    <div class="tz-content">
+      <div class="tz-header">
+        <h3>添加全球城市时区</h3>
+        <button class="close-tz" id="close-tz-btn">×</button>
+      </div>
+      <div class="tz-body">
+        <div class="tz-group-title">亚洲 (Asia)</div>
+        <div class="tz-grid">
+          <div class="tz-item" data-tz="Asia/Shanghai" data-city="北京">&#127464;&#127475; 北京 (BJS)</div>
+          <div class="tz-item" data-tz="Asia/Tokyo" data-city="东京">&#127471;&#127477; 东京 (TYO)</div>
+          <div class="tz-item" data-tz="Asia/Seoul" data-city="首尔">&#127472;&#127479; 首尔 (SEL)</div>
+          <div class="tz-item" data-tz="Asia/Singapore" data-city="新加坡">&#127480;&#127468; 新加坡 (SIN)</div>
+          <div class="tz-item" data-tz="Asia/Bangkok" data-city="曼谷">&#127481;&#127469; 曼谷 (BKK)</div>
+          <div class="tz-item" data-tz="Asia/Dubai" data-city="迪拜">&#127462;&#127466; 迪拜 (DXB)</div>
+        </div>
+        <div class="tz-group-title" style="margin-top: 25px;">欧洲 (Europe)</div>
+        <div class="tz-grid">
+          <div class="tz-item" data-tz="Europe/London" data-city="伦敦">&#127468;&#127463; 伦敦 (LON)</div>
+          <div class="tz-item" data-tz="Europe/Paris" data-city="巴黎">&#127467;&#127479; 巴黎 (PAR)</div>
+          <div class="tz-item" data-tz="Europe/Berlin" data-city="柏林">&#127465;&#127466; 柏林 (BER)</div>
+          <div class="tz-item" data-tz="Europe/Rome" data-city="罗马">&#127470;&#127481; 罗马 (ROM)</div>
+          <div class="tz-item" data-tz="Europe/Moscow" data-city="莫斯科">&#127479;&#127482; 莫斯科 (MOW)</div>
+        </div>
+        <div class="tz-group-title" style="margin-top: 25px;">美洲 (Americas)</div>
+        <div class="tz-grid">
+          <div class="tz-item" data-tz="America/New_York" data-city="纽约">&#127482;&#127480; 纽约 (NYC)</div>
+          <div class="tz-item" data-tz="America/Los_Angeles" data-city="洛杉矶">&#127482;&#127480; 洛杉矶 (LAX)</div>
+          <div class="tz-item" data-tz="America/Chicago" data-city="芝加哥">&#127482;&#127480; 芝加哥 (CHI)</div>
+          <div class="tz-item" data-tz="America/Toronto" data-city="多伦多">&#127464;&#127462; 多伦多 (YTO)</div>
+          <div class="tz-item" data-tz="America/Sao_Paulo" data-city="圣保罗">&#127463;&#127479; 圣保罗 (SAO)</div>
+        </div>
+        <div class="tz-group-title" style="margin-top: 25px;">大洋洲与非洲</div>
+        <div class="tz-grid">
+          <div class="tz-item" data-tz="Australia/Sydney" data-city="悉尼">&#127462;&#127482; 悉尼 (SYD)</div>
+          <div class="tz-item" data-tz="Pacific/Auckland" data-city="奥克兰">&#127475;&#127487; 奥克兰 (AKL)</div>
+          <div class="tz-item" data-tz="Africa/Cairo" data-city="开罗">&#127466;&#127468; 开罗 (CAI)</div>
+          <div class="tz-item" data-tz="Africa/Johannesburg" data-city="约翰内斯堡">&#127487;&#127462; 约堡 (JNB)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+ 
+  <script>
+    // ==========================================
+    // 0. 强化的分享与收藏引擎 (结合标题与链接)
+    // ==========================================
+    document.getElementById('btn-share').addEventListener('click', async () => {
+      const shareData = {
+        title: 'Pudiu 翻页在线时钟',
+        text: '发现一个免费好用的在线翻页时钟，无广告，支持全屏、沉浸白噪音与 4K 动态壁纸！',
+        url: window.location.href
+      };
+      if (navigator.share) {
+        try { await navigator.share(shareData); } catch (err) { console.log('分享已取消', err); }
+      } else {
+        const copyText = `【${shareData.title}】\n${shareData.text}\n访问地址：${shareData.url}`;
+        const el = document.createElement('textarea');
+        el.value = copyText;
+        document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+        alert('标题、简介及网址已成功复制到剪贴板，快去分享给朋友吧！');
+      }
+    });
+ 
+    document.getElementById('btn-favorite').addEventListener('click', () => {
+      alert('请按组合键 Ctrl + D (Mac 用户请按 Cmd + D) 将免费全屏时钟加入收藏夹');
+    });
+ 
+    // ==========================================
+    // 1. 全屏与双击引擎
+    // ==========================================
+    function toggleFullScreen() {
+      const doc = document.documentElement;
+      if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement && !document.msFullscreenElement) {
+        if (doc.requestFullscreen) doc.requestFullscreen().catch(()=>{});
+        else if (doc.webkitRequestFullscreen) doc.webkitRequestFullscreen();
+        else if (doc.mozRequestFullScreen) doc.mozRequestFullScreen();
+        else if (doc.msRequestFullscreen) doc.msRequestFullscreen();
+      } else {
+        if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+        else if (document.msExitFullscreen) document.msExitFullscreen();
+      }
+    }
+ 
+    function handleFullscreenChange() {
+      const isFull = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+      if (isFull) document.body.classList.add('fullscreen-mode');
+      else document.body.classList.remove('fullscreen-mode');
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+ 
+    document.getElementById('btn-fullscreen').addEventListener('click', (e) => {
+      e.stopPropagation(); toggleFullScreen();
+    });
+ 
+    document.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.control-btn') || e.target.closest('.sidebar-panel') || e.target.closest('.scroll-hint') || e.target.closest('.dock-container') || e.target.closest('.tz-modal')) return;
+      toggleFullScreen();
+    });
+ 
+    // ==========================================
+    // 2. 动态时区底座库系统 (FIFO 排队)
+    // ==========================================
+    const dockContainer = document.getElementById('dock-container');
+    const tzModal = document.getElementById('tz-modal');
+     
+    let myDockCities = JSON.parse(localStorage.getItem('my_dock_cities')) || [
+      { tz: 'America/New_York', city: '纽约', icon: '&#127482;&#127480; 纽约' },
+      { tz: 'Europe/London', city: '伦敦', icon: '&#127468;&#127463; 伦敦' },
+      { tz: 'Asia/Tokyo', city: '东京', icon: '&#127471;&#127477; 东京' }
+    ];
+ 
+    let currentTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    let localCityName = "定位中...";
+ 
+    function renderDock() {
+      dockContainer.innerHTML = '';
+       
+      const localBtn = document.createElement('button');
+      localBtn.className = `dock-btn ${currentTz === localBtn.dataset.tz || document.querySelectorAll('.dock-btn.active').length === 0 ? 'active' : ''}`;
+      localBtn.dataset.tz = currentTz;
+      localBtn.dataset.city = localCityName;
+      localBtn.innerHTML = `&#128205; 当前: ${localCityName}`;
+      dockContainer.appendChild(localBtn);
+ 
+      myDockCities.forEach((item) => {
+        const btn = document.createElement('button');
+        btn.className = `dock-btn ${currentTz === item.tz ? 'active' : ''}`;
+        btn.dataset.tz = item.tz;
+        btn.dataset.city = item.city;
+        btn.innerHTML = item.icon;
+        dockContainer.appendChild(btn);
+      });
+ 
+      const addBtn = document.createElement('button');
+      addBtn.className = 'dock-btn add-btn';
+      addBtn.innerHTML = '&#127757; 更多地区';
+      addBtn.onclick = (e) => { e.stopPropagation(); tzModal.classList.add('show'); };
+      dockContainer.appendChild(addBtn);
+    }
+ 
+    dockContainer.addEventListener('click', (e) => {
+      const btn = e.target.closest('.dock-btn:not(.add-btn)');
+      if (!btn) return;
+       
+      document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+       
+      currentTz = btn.dataset.tz; 
+      document.getElementById('display-city').innerText = btn.dataset.city;
+      Object.keys(currentTimes).forEach(k => currentTimes[k] = -1); updateTime();
+    });
+ 
+    document.getElementById('close-tz-btn').addEventListener('click', () => tzModal.classList.remove('show'));
+    tzModal.addEventListener('click', (e) => { if(e.target === tzModal) tzModal.classList.remove('show'); });
+ 
+    // FIFO 替换机制
+    document.querySelectorAll('.tz-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const newTz = item.dataset.tz;
+        const newCity = item.dataset.city;
+        const newIcon = item.innerHTML;
+         
+        if(!myDockCities.find(c => c.tz === newTz)) {
+          if (myDockCities.length >= 3) myDockCities.shift(); // 核心：超过3个踢掉最老的
+          myDockCities.push({ tz: newTz, city: newCity, icon: newIcon });
+          localStorage.setItem('my_dock_cities', JSON.stringify(myDockCities));
+        }
+         
+        currentTz = newTz;
+        document.getElementById('display-city').innerText = newCity;
+        renderDock();
+         
+        document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
+        const targetBtn = Array.from(document.querySelectorAll('.dock-btn')).find(b => b.dataset.tz === newTz);
+        if(targetBtn) targetBtn.classList.add('active');
+ 
+        Object.keys(currentTimes).forEach(k => currentTimes[k] = -1); updateTime();
+        tzModal.classList.remove('show');
+      });
+    });
+ 
+    async function initLocation() {
+      try {
+        const res = await fetch('http://ip-api.com/json/'); 
+        const data = await res.json();
+        if (data && data.status === 'success') {
+          currentTz = data.timezone;
+          localCityName = data.city.toUpperCase();
+        } else { throw new Error("API Exception"); }
+      } catch (err) {
+        localCityName = currentTz.split('/').pop().replace('_', ' ').toUpperCase();
+      }
+      document.getElementById('display-city').innerText = localCityName;
+      renderDock(); updateTime();
+    }
+ 
+    // ==========================================
+    // 3. 媒体画廊引擎
+    // ==========================================
+    let bgDataList = [
+      { id: 'i1', type: 'image', title: '极简纯白', cover: 'https://images.unsplash.com/photo-1495195129352-aeb325a55b65?w=300', url: 'https://images.unsplash.com/photo-1495195129352-aeb325a55b65?q=80&w=2560&auto=format&fit=crop' },
+      { id: 'v1', type: 'video', title: '深海潜游 (4K)', cover: 'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=300', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
+      { id: 'i2', type: 'image', title: '赛博霓虹', cover: 'https://images.unsplash.com/photo-1605806616949-1e87b487cb2a?w=300', url: 'https://images.unsplash.com/photo-1605806616949-1e87b487cb2a?q=80&w=2560&auto=format&fit=crop' },
+      { id: 'v2', type: 'video', title: '科技夜城', cover: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=300', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4' },
+      { id: 'i3', type: 'image', title: '暗黑质感', cover: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=300', url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2560&auto=format&fit=crop' },
+      { id: 'i4', type: 'image', title: '深空星系', cover: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=300', url: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?q=80&w=2560&auto=format&fit=crop' }
+    ];
+ 
+    const bgLayer = document.getElementById('bg-layer');
+    const masterGrid = document.getElementById('master-bg-grid');
+    let currentMediaBlob = null, currentAudioBlob = null;
+    let currentBgIndex = 0;
+ 
+    function renderBgList() {
+      const uploadCard = masterGrid.firstElementChild;
+      masterGrid.innerHTML = '';
+      masterGrid.appendChild(uploadCard);
+      const currentBg = localStorage.getItem('pro_bg_id') || 'i1';
+ 
+      bgDataList.forEach((item, index) => {
+        if(item.id === currentBg) currentBgIndex = index;
+        const card = document.createElement('div');
+        card.className = `bg-card ${item.id === currentBg ? 'active' : ''}`;
+        card.innerHTML = `<div class="bg-type-badge">${item.type === 'video' ? '&#9654; 动态视频' : '&#128444; 高清图片'}</div><img class="bg-cover" src="${item.cover}" alt="cover"><div class="bg-info"><span class="bg-title">${item.title}</span></div>`;
+        card.onclick = () => {
+          document.querySelectorAll('.media-gallery .bg-card').forEach(c => c.classList.remove('active'));
+          card.classList.add('active');
+          localStorage.setItem('pro_bg_id', item.id);
+          currentBgIndex = index;
+          applyBackground(item); 
+          document.getElementById('screen-clock').scrollIntoView(); 
+        };
+        masterGrid.appendChild(card);
+      });
+    }
+ 
+    function applyBackground(item) {
+      bgLayer.innerHTML = ''; 
+      if (item.type === 'image') {
+        const img = document.createElement('img'); img.src = item.url; bgLayer.appendChild(img);
+      } else if (item.type === 'video') {
+        const vid = document.createElement('video');
+        vid.src = item.url; vid.autoplay = true; vid.loop = true; vid.muted = true; vid.playsInline = true;
+        bgLayer.appendChild(vid);
+      }
+    }
+ 
+    document.getElementById('custom-upload').addEventListener('change', (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      if(currentMediaBlob) URL.revokeObjectURL(currentMediaBlob); 
+      currentMediaBlob = URL.createObjectURL(file);
+      const isVideo = file.type.startsWith('video/');
+      const customItem = { id: 'custom_' + Date.now(), type: isVideo ? 'video' : 'image', title: '自定义本地文件', cover: isVideo ? 'https://via.placeholder.com/300x150/2a2a2d/fff?text=Local+Video' : currentMediaBlob, url: currentMediaBlob };
+      bgDataList.unshift(customItem); currentBgIndex = 0; localStorage.setItem('pro_bg_id', customItem.id);
+      renderBgList(); applyBackground(customItem); document.getElementById('screen-clock').scrollIntoView();
+    });
+ 
+    function initBg() {
+      const savedId = localStorage.getItem('pro_bg_id') || 'i1';
+      if (savedId === 'bing_random') {
+        const savedUrl = localStorage.getItem('pro_bg_url') || `https://bing.img.run/rand.php?t=${new Date().getTime()}`;
+        applyBackground({ type: 'image', url: savedUrl });
+        document.querySelectorAll('.media-gallery .bg-card').forEach(c => c.classList.remove('active'));
+      } else {
+        const item = bgDataList.find(d => d.id === savedId) || bgDataList.find(d => d.id === 'i1');
+        applyBackground(item); 
+      }
+      renderBgList();
+    }
+ 
+    // ==========================================
+    // 4. 必应接口防缓存 & 全局翻转
+    // ==========================================
+    const appRoot = document.getElementById('app-root');
+    let isFlipX = false, isFlipY = false;
+ 
+    function updateGlobalMirror() {
+      appRoot.className = 'app-root';
+      if(isFlipX && isFlipY) appRoot.classList.add('mirror-xy');
+      else if(isFlipX) appRoot.classList.add('mirror-x');
+      else if(isFlipY) appRoot.classList.add('mirror-y');
+      document.getElementById('btn-flip-x').classList.toggle('active', isFlipX);
+      document.getElementById('btn-flip-y').classList.toggle('active', isFlipY);
+    }
+    document.getElementById('btn-flip-x').addEventListener('click', () => { isFlipX = !isFlipX; updateGlobalMirror(); });
+    document.getElementById('btn-flip-y').addEventListener('click', () => { isFlipY = !isFlipY; updateGlobalMirror(); });
+ 
+    document.getElementById('btn-next-bg').addEventListener('click', () => {
+      const randUrl = `https://bing.img.run/rand.php?t=${new Date().getTime()}`;
+      localStorage.setItem('pro_bg_id', 'bing_random');
+      localStorage.setItem('pro_bg_url', randUrl);
+      document.querySelectorAll('.media-gallery .bg-card').forEach(c => c.classList.remove('active'));
+      applyBackground({ type: 'image', url: randUrl });
+    });
+ 
+    // ==========================================
+    // 5. 设置引擎与侧边栏
+    // ==========================================
+    const sidebarWrapper = document.getElementById('sidebar-wrapper');
+    const settingsBtn = document.getElementById('settings-btn');
+    const closeSidebarBtn = document.getElementById('close-sidebar-btn');
+     
+    settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); sidebarWrapper.classList.toggle('open'); });
+    closeSidebarBtn.addEventListener('click', () => { sidebarWrapper.classList.remove('open'); });
+     
+    document.addEventListener('click', (e) => { 
+      if (!sidebarWrapper.contains(e.target) && e.target !== settingsBtn && sidebarWrapper.classList.contains('open')) {
+        sidebarWrapper.classList.remove('open'); 
+      }
+    });
+ 
+    const root = document.documentElement;
+    const elShowClock = document.getElementById('setting-show-clock');
+    const elScale = document.getElementById('setting-scale');
+    const elFont = document.getElementById('setting-font');
+    const elCardBg = document.getElementById('setting-card-bg');
+    const elFontColor = document.getElementById('setting-font-color');
+    const mainWidget = document.getElementById('main-widget');
+    const elHourFormat = document.getElementById('setting-hour-format');
+     
+    elShowClock.addEventListener('change', e => mainWidget.classList.toggle('hidden', !e.target.checked));
+    elScale.addEventListener('input', e => root.style.setProperty('--clock-scale', e.target.value));
+    elFont.addEventListener('change', e => root.style.setProperty('--clock-font', e.target.value));
+    elCardBg.addEventListener('input', e => root.style.setProperty('--card-bg-color', e.target.value));
+    elFontColor.addEventListener('input', e => root.style.setProperty('--clock-color', e.target.value));
+ 
+    let is24Hour = true;
+    elHourFormat.addEventListener('change', (e) => {
+      is24Hour = e.target.value === '24';
+      Object.keys(currentTimes).forEach(k => currentTimes[k] = -1); updateTime();
+    });
+ 
+    const ambientAudio = document.getElementById('ambient-audio');
+    const audioToggle = document.getElementById('setting-audio-toggle');
+    const audioVol = document.getElementById('setting-volume');
+    ambientAudio.volume = audioVol.value;
+ 
+    audioToggle.addEventListener('change', (e) => {
+      if(e.target.checked) ambientAudio.play().catch(() => document.addEventListener('click', () => ambientAudio.play(), {once:true}));
+      else ambientAudio.pause();
+    });
+    audioVol.addEventListener('input', e => ambientAudio.volume = e.target.value);
+    document.getElementById('custom-audio-upload').addEventListener('change', (e) => {
+      const file = e.target.files[0]; if(!file) return;
+      if(currentAudioBlob) URL.revokeObjectURL(currentAudioBlob); 
+      currentAudioBlob = URL.createObjectURL(file);
+      ambientAudio.src = currentAudioBlob;
+      audioToggle.checked = true; ambientAudio.play();
+    });
+ 
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      if(confirm('系统提示：确认要清除所有自定义数据并恢复默认设置吗？')) { localStorage.clear(); location.reload(); }
+    });
+ 
+    // ==========================================
+    // 6. 核心翻页时钟引擎
+    // ==========================================
+    let currentTimes = { 'hours-tens': -1, 'hours-ones': -1, 'minutes-tens': -1, 'minutes-ones': -1, 'seconds-tens': -1, 'seconds-ones': -1 };
+    let flipTimeouts = {};
+ 
+    function updateTime() {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: currentTz, hour12: !is24Hour, hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(now);
+ 
+      let h = parts.find(p => p.type === 'hour').value;
+      const m = parts.find(p => p.type === 'minute').value;
+      const s = parts.find(p => p.type === 'second').value;
+      if (is24Hour && h === '24') h = '00'; h = h.padStart(2, '0');
+ 
+      updateUnit('hours-tens', h[0]); updateUnit('hours-ones', h[1]);
+      updateUnit('minutes-tens', m[0]); updateUnit('minutes-ones', m[1]);
+      updateUnit('seconds-tens', s[0]); updateUnit('seconds-ones', s[1]);
+ 
+      const ampmEl = document.getElementById('display-ampm');
+      const ampmPart = parts.find(p => p.type === 'dayPeriod');
+      if (!is24Hour && ampmPart) { ampmEl.style.display = 'inline-block'; ampmEl.innerText = ampmPart.value.toUpperCase(); } 
+      else { ampmEl.style.display = 'none'; }
+ 
+      document.getElementById('display-date').innerText = new Intl.DateTimeFormat('zh-CN', { timeZone: currentTz, year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(now);
+    }
+ 
+    function updateUnit(id, newVal) {
+      if (currentTimes[id] === newVal) return;
+      const unit = document.getElementById(id);
+      const topBg = unit.querySelector('.top-bg span'), bottomBg = unit.querySelector('.bottom-bg span');
+      const topFlip = unit.querySelector('.top-flip span'), bottomFlip = unit.querySelector('.bottom-flip span');
+      const oldVal = currentTimes[id];
+ 
+      if (oldVal === -1) {
+        currentTimes[id] = newVal; topBg.innerText = newVal; bottomBg.innerText = newVal;
+        topFlip.innerText = newVal; bottomFlip.innerText = newVal; return;
+      }
+      currentTimes[id] = newVal;
+      if (flipTimeouts[id]) clearTimeout(flipTimeouts[id]);
+ 
+      topBg.innerText = newVal; bottomBg.innerText = oldVal; topFlip.innerText = oldVal; bottomFlip.innerText = newVal;
+      unit.classList.remove('is-flipping'); void unit.offsetWidth; unit.classList.add('is-flipping');
+      flipTimeouts[id] = setTimeout(() => { topFlip.innerText = newVal; bottomBg.innerText = newVal; unit.classList.remove('is-flipping'); }, 850);
+    }
+ 
+    // ==========================================
+    // 7. 电脑级锁屏控制
+    // ==========================================
+    const standbyBtn = document.getElementById('btn-standby');
+    let isLocked = false;
+     
+    function unlockScreen() {
+      if (!isLocked) return;
+      document.body.classList.remove('standby-mode');
+      isLocked = false;
+    }
+ 
+    standbyBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); 
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+      sidebarWrapper.classList.remove('open');
+      document.body.classList.add('standby-mode'); 
+      isLocked = true; 
+      document.getElementById('screen-clock').scrollIntoView(); 
+    });
+ 
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.control-btn') || e.target.closest('.sidebar-panel') || e.target.closest('.scroll-hint') || e.target.closest('.tz-modal')) return;
+      if (isLocked) unlockScreen();
+    });
+    window.addEventListener('keydown', (e) => { if (isLocked) unlockScreen(); });
+ 
+    // 初始化运行
+    initLocation();
+    initBg(); 
+    setInterval(updateTime, 1000);
+  </script>
+</body>
+</html>
